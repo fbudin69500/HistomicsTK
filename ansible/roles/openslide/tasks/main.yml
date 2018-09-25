@@ -50,6 +50,8 @@
       - libxml2-dev
       - pkg-config
       - python-gi-dev
+      - gtk-doc-tools
+      - swig
       # Don't install libpoppler; it needs an older version of libtif
       # - libpoppler-glib-dev
     install_recommends: no
@@ -189,7 +191,7 @@
 # vips
 - name: Download vips
   command: >-
-    wget --retry-connrefused --waitretry=1 --read-timeout=300 https://github.com/jcupitt/libvips/releases/download/v8.5.9/vips-8.5.9.tar.gz -O vips-8.5.9.tar.gz
+    wget --retry-connrefused --waitretry=1 --read-timeout=300 https://codeload.github.com/jcupitt/libvips/tar.gz/v8.5.9 -O vips-8.5.9.tar.gz
   args:
     chdir: "{{ root_dir }}"
     creates: vips-8.5.9.tar.gz
@@ -198,17 +200,17 @@
   unarchive:
     src: "{{ root_dir }}/vips-8.5.9.tar.gz"
     dest: "{{ root_dir }}"
-    creates: "{{ root_dir }}/vips-8.5.9"
+    creates: "{{ root_dir }}/libvips-8.5.9"
 
 - name: Configure vips
-  shell: ./configure
+  shell: ./autogen.sh
   args:
-    chdir: "{{ root_dir }}/vips-8.5.9"
+    chdir: "{{ root_dir }}/libvips-8.5.9"
 
 - name: Build vips
   command: make
   args:
-    chdir: "{{ root_dir }}/vips-8.5.9"
+    chdir: "{{ root_dir }}/libvips-8.5.9"
     creates: "{{ root_dir }}/.built-vips-8.5.9"
 
 - name: Leave creation artifact for vips build
@@ -219,7 +221,7 @@
 - name: Install vips
   command: make install
   args:
-    chdir: "{{ root_dir }}/vips-8.5.9"
+    chdir: "{{ root_dir }}/libvips-8.5.9"
     creates: "{{ root_dir }}/.installed-vips-8.5.9"
   become: true
 
@@ -234,7 +236,7 @@
 
 - name: Install Vips python connector
   copy:
-    src: "{{ root_dir }}/vips-8.5.9/python/packages/gi/overrides/Vips.py"
+    src: "{{ root_dir }}/libvips-8.5.9/python/packages/gi/overrides/Vips.py"
     dest: /usr/lib/python2.7/dist-packages/gi/overrides/
   become: true
 
