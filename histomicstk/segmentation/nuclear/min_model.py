@@ -7,7 +7,7 @@ import skimage.morphology as mo
 from skimage.draw import polygon
 
 
-def min_model(I, Delta=0.3, MaxLength=255, Compaction=3,
+def min_model(I, Delta=0.3, MaxLength=225, Compaction=3,
               MinArea=100, MinWidth=5, MinDepth=2, MinConcavity=np.inf):
     """Performs a nuclear segmentation using a gradient contour tracing and
     geometry splitting algorithm. Implemented from the reference below.
@@ -76,7 +76,7 @@ def min_model(I, Delta=0.3, MaxLength=255, Compaction=3,
     X, Y, Min, Max = seed_contours(I, Delta)
 
     # trace contours from seeds
-    cXs, cYs = trace_contours(I, X, Y, Min, Max, MaxLength=255)
+    cXs, cYs = trace_contours(I, X, Y, Min, Max, MaxLength)
 
     # score successfully traced contours
     Scores = score_contours(I, cXs, cYs)
@@ -96,6 +96,140 @@ def min_model(I, Delta=0.3, MaxLength=255, Compaction=3,
     Label = split_concavities(Label, MinDepth, MinConcavity)
 
     return Label
+
+def seed_contours_slow(I):
+    """Detects seed pixels for contour tracing by finding max-gradient points
+    between local minima and maxima in an intensity image.
+
+    Parameters
+    ----------
+    I : array_like
+        An intensity image used for analyzing local minima/maxima and
+        gradients. Dimensions M x N.
+    
+    Notes
+    -----
+    This is a direct implementation of [1] pseudo-code S5 in supplementary
+    information including a few bug corrections:
+    - Instead of saving `minIntensity` and `maxIntensity` to find the 2D contour,
+    we save `minObjectIntensity` and `maxObjectIntensity`
+    - `intensityOfMaxGradient` is updated `if gradient>maxLocalGradient`. In the pseudo-
+    code, this variable is only updated at the begining of each image line.
+    - `maxLocalGradient` used instead of `maxGradient`
+
+    Returns
+    -------
+    X : array_like
+        A 1D array of horizontal coordinates of contour seed pixels for
+        tracing.
+    Y : array_like
+        A 1D array of the vertical coordinates of seed pixels for tracing.
+    Min : array_like
+        A 1D array of the corresponding minimum values for contour tracing of
+        seed point X, Y.
+    Max : array_like
+        A 1D array of the corresponding maximum values for contour tracing of
+        seed point X, Y.
+
+    See Also
+    --------
+    seed_contours
+
+    References
+    ----------
+    .. [1] S. Weinert et al "Detection and Segmentation of Cell Nuclei in
+       Virtual Microscopy Images: A Minimum-Model Approach" in Nature
+       Scientific Reports,vol.2,no.503, doi:10.1038/srep00503, 2012.
+
+    """
+
+    # initialize outputs
+    X = []
+    Y = []
+    Min = []
+    Max = []
+
+    for v in range(0, I.shape[0]):
+        # Initializes intensity variables
+        previousIntensity=I[v,0]
+        intensity=I[v,1]
+
+        # Initialize the extremal variables
+        intensityOfMaxGradient=intensity
+        minIntensity=previousIntensity
+        maxIntensity=previousIntensity
+        indexOfMinIntensity=0
+        indexOfMaxIntensity=0
+        indexOfMaxGradient=0
+        maxLocalGradient=-1  # Diff
+
+        # Walk along the one dimensional image function
+        for u in range(1,I.shape[1]-1):
+            # Read and store the value of the next pixel
+            nextIntensity=I[v,u+1]
+
+            # Update value and position of minimum intensity
+            if(intensity < minIntensity):
+                minIntensity=intensity
+                indexOfMinIntensity=u
+
+            # Update value and position of maximum intensity
+            if intensity > maxIntensity:
+                maxIntensity=intensity
+                indexOfMaxIntensity=u
+
+            # Compute the local gradient
+            gradient=intensity-previousIntensity
+
+            # Turn into positive value if required
+            if gradient<0:
+                gradient=-gradient
+
+            # Update position and value of maximum local gradient
+            if gradient>maxLocalGradient:
+                maxLocalGradient=gradient
+                indexOfMaxLocalGradient=u
+                intensityOfMaxGradient=intensity  # Diff
+
+            # Determine if the slope is positive or negative
+            increasing=indexOfMinIntensity<indexOfMaxIntensity
+            decreasing=indexOfMaxIntensity<indexOfMinIntensity
+
+            # Start 2D contour tracing if a local extremal value is reached
+            if (increasing and nextIntensity<intensity) or (decreasing and nextIntensity>intensity):
+                # Compute the minimum and maximum intensity for the 2D contour tracing
+                if increasing:
+                    minObjectIntensity=intensityOfMaxGradient
+                    maxObjectIntensity=maxIntensity
+
+                else:
+                    maxObjectIntensity=intensityOfMaxGradient
+                    minObjectIntensity=minIntensity
+
+                # Skip tracing and simply store seed points
+                X.append(indexOfMaxLocalGradient)
+                Y.append(v)
+                Min.append(minObjectIntensity)  # Diff
+                Max.append(maxObjectIntensity)  # Diff
+                # Reset the extremal variables
+                minIntensity=intensity
+                maxIntensity=intensity
+                indexOfMinIntensity=u
+                indexOfMaxIntensity=u
+                maxLocalGradient=-1  # Diff
+            
+            # Shift the intensity values
+            previousIntensity=intensity
+            intensity=nextIntensity
+    
+    # convert outputs from lists to numpy arrays
+    X = np.array(X, dtype=np.uint)
+    Y = np.array(Y, dtype=np.uint)
+    Min = np.array(Min, dtype=I.dtype)
+    Max = np.array(Max, dtype=I.dtype)
+
+    # return seed pixels positions and intensity range intervals
+    return X, Y, Min, Max
 
 
 def seed_contours(I, Delta=0.3):
@@ -219,6 +353,7 @@ def seed_contours(I, Delta=0.3):
 
         # remove pairs that do not have sufficient intensity transitions
         if(Delta is not None):
+            print I.dtype
             if np.issubdtype(I.dtype, np.integer):
                 Range = Delta * 255.0
             elif np.issubdtype(I.dtype, np.float):
